@@ -1,0 +1,370 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE sqlMap PUBLIC "-//ibatis.apache.org//DTD SQL Map 2.0//EN" "http://ibatis.apache.org/dtd/sql-map-2.dtd">
+
+<sqlMap>
+    <!-- 검증단 정량지표 목록 조회 쿼리-->
+    <!-- before (23 초 대)-->
+    <select id="targetCompanyListBefore" parameterClass="evaluationGroupSearchDTO" resultMap="companyResultMap">
+        SELECT
+        result.inst_nm
+        , result.evl_type_cd
+        , result.inst_type_cd
+        , result.group_no
+        , result.inst_cd
+        , result.inst_mng_cd
+        , result.up_inst_mng_cd
+        , result.up_inst_cd
+        , IF(result.self_verification_count = 0, 0, result.target_indicator_count) AS self_verification_count
+        , IF(result.system_count = 0, result.verification_count + result.system_indicator_count,
+        result.verification_count) AS verification_count
+        , 0 AS self_verification_system_count
+        , 0 AS verification_system_count
+        , result.etc_info
+        FROM (
+        /* 기관별 카운팅 */
+        SELECT
+        target_inst.inst_nm
+        , target_inst.evl_type_cd
+        , target_inst.inst_type_cd
+        , target_inst.group_no
+        , target_inst.inst_cd
+        , target_inst.inst_mng_cd
+        , target_inst.up_inst_mng_cd
+        , target_inst.up_inst_cd
+        , (
+        SELECT COUNT(1)
+        FROM pleevlidtlm AS indi_detail
+        WHERE evli_no = #quantitativeIndicatorNo#
+        AND evli_type_cd = '1'
+        ) AS target_indicator_count
+        , (
+        SELECT COUNT(1)
+        FROM pleevlidtlm AS indi_detail
+        WHERE evli_no = #quantitativeIndicatorNo#
+        AND evli_type_cd = '1'
+        AND rgr_qy_type_cd = '2'
+        ) AS system_indicator_count
+        , (
+        SELECT COUNT(inst_system.sys_no)
+        FROM pleprvcprcssyst AS inst_system
+        WHERE target_inst.group_no = inst_system.group_no
+        AND target_inst.inst_mng_cd = inst_system.inst_mng_cd
+        AND target_inst.inst_cd = inst_system.inst_cd
+        ) AS system_count
+        , SUM(summery.visit_site_count) AS etc_info
+        , COUNT(DISTINCT summery.evli_dtl_no) AS self_verification_count
+        , COUNT(
+        CASE
+        WHEN (summery.not_fulfill_count + summery.complete_count) - summery.target_count >= 0 THEN 1
+        END
+        ) + IF(target_inst.evl_type_cd != '01', 1, 0) AS verification_count
+        FROM
+        pleprvclvlevlm AS evaluation
+        INNER JOIN
+        pletrgtinstgroupt AS inst_group
+        ON evaluation.trgt_inst_group_no = inst_group.group_no
+        AND evaluation.evl_no = #evaluationNo#
+        INNER JOIN
+        pletrgtinstt AS target_inst
+        ON target_inst.group_no = inst_group.group_no
+        <isNotNull property="evaluationTypeBinder">
+            <isNotEmpty property="evaluationTypeBinder">
+                AND target_inst.evl_type_cd = #evaluationTypeBinder#
+            </isNotEmpty>
+        </isNotNull>
+        <isNotNull property="companyEvaluationTypeBinder">
+            <isNotEmpty property="companyEvaluationTypeBinder">
+                AND target_inst.inst_type_cd = #companyEvaluationTypeBinder#
+            </isNotEmpty>
+        </isNotNull>
+        LEFT JOIN (
+        SELECT
+        summery_raw.group_no
+        , summery_raw.inst_mng_cd
+        , summery_raw.inst_cd
+        , summery_raw.evli_dtl_no
+        , COUNT(
+        CASE
+        WHEN summery_raw.site_insp_req_cd = 'y' THEN 1
+        END
+        ) AS visit_site_count
+        , COUNT(DISTINCT summery_raw.sys_no) AS target_count
+        , COUNT(
+        CASE
+        WHEN summery_raw.itsl_evl_rslt_cd = '02' THEN 1
+        END
+        ) AS not_fulfill_count
+        , COUNT(
+        CASE
+        WHEN summery_raw.evl_rslt_cd THEN 1
+        END
+        ) AS complete_count
+        FROM (
+        SELECT
+        self_sys.group_no
+        , self_sys.inst_mng_cd
+        , self_sys.inst_cd
+        , self_sys.sys_no
+        , self_sys.evli_no
+        , self_sys.evli_dtl_no
+        , self_sys.itsl_evl_rslt_cd
+        , ver_sys.evli_dtl_no AS ver_evli_dtl_no
+        , ver_sys.evl_rslt_cd
+        , ver_sys.site_insp_req_cd
+        FROM
+        plesysitslevlt AS self_sys
+        LEFT JOIN
+        plesysevlrslttt AS ver_sys
+        ON ver_sys.group_no = self_sys.group_no
+        AND ver_sys.inst_cd = self_sys.inst_cd
+        AND ver_sys.inst_mng_cd = self_sys.inst_mng_cd
+        AND ver_sys.sys_no = self_sys.sys_no
+        AND ver_sys.evli_no = self_sys.evli_no
+        AND ver_sys.evli_dtl_no = self_sys.evli_dtl_no
+        AND ver_sys.evl_prgrs_stts_cd IN ('04', '05')
+        WHERE
+        self_sys.evli_no = #quantitativeIndicatorNo#
+
+        UNION
+
+        SELECT
+        self_inst.group_no
+        , self_inst.inst_mng_cd
+        , self_inst.inst_cd
+        , 0 AS sys_no
+        , self_inst.evli_no
+        , self_inst.evli_dtl_no
+        , self_inst.itsl_evl_rslt_cd
+        , ver.evli_dtl_no AS ver_evli_dtl_no
+        , ver.evl_rslt_cd
+        , ver.site_insp_req_cd
+        FROM
+        pleinstitslevlt AS self_inst
+        LEFT JOIN
+        pleinstevlrslttt AS ver
+        ON ver.group_no = self_inst.group_no
+        AND ver.inst_cd = self_inst.inst_cd
+        AND ver.inst_mng_cd = self_inst.inst_mng_cd
+        AND ver.evli_no = self_inst.evli_no
+        AND ver.evli_dtl_no = self_inst.evli_dtl_no
+        AND ver.evl_prgrs_stts_cd IN ('04', '05')
+        WHERE
+        self_inst.evli_no = #quantitativeIndicatorNo#
+        ) AS summery_raw
+        GROUP BY
+        summery_raw.group_no
+        , summery_raw.inst_mng_cd
+        , summery_raw.inst_cd
+        , summery_raw.evli_dtl_no
+        ) AS summery
+        ON target_inst.group_no = summery.group_no
+        AND target_inst.inst_mng_cd = summery.inst_mng_cd
+        AND target_inst.inst_cd = summery.inst_cd
+        WHERE 1=1
+        <isNotNull property="companyName">
+            <isNotEmpty property="companyName">
+                AND UPPER(target_inst.inst_nm) LIKE '%'||UPPER(#companyName#)||'%'
+            </isNotEmpty>
+        </isNotNull>
+        GROUP BY
+        target_inst.inst_nm
+        , target_inst.evl_type_cd
+        , target_inst.inst_type_cd
+        , target_inst.group_no
+        , target_inst.inst_cd
+        , target_inst.inst_mng_cd
+        , target_inst.up_inst_mng_cd
+        , target_inst.up_inst_cd
+        ) AS result
+        WHERE 1=1
+        <isNotNull property="status">
+            <isEqual property="status" compareValue="completed">
+                AND result.target_indicator_count = IF(result.system_count = 0, result.system_indicator_count, 0) +
+                result.verification_count
+            </isEqual>
+            <isEqual property="status" compareValue="inCompleted">
+                AND result.target_indicator_count != IF(result.system_count = 0, result.system_indicator_count, 0) +
+                result.verification_count
+            </isEqual>
+        </isNotNull>
+        <isNotNull property="etcInfo">
+            <isNotEmpty property="etcInfo">
+                <isEqual property="etcInfo" compareValue="Y">
+                    AND result.etc_info != 0
+                </isEqual>
+                <isEqual property="etcInfo" compareValue="N">
+                    AND (result.etc_info = 0 OR result.etc_info IS NULL)
+                </isEqual>
+            </isNotEmpty>
+        </isNotNull>
+        ORDER BY
+        CASE result.inst_type_cd
+        WHEN '01' THEN 1
+        WHEN '05' THEN 2
+        WHEN '06' THEN 3
+        WHEN '02' THEN 4
+        WHEN '03' THEN 5
+        WHEN '07' THEN 6
+        WHEN '08' THEN 7
+        WHEN '09' THEN 8
+        WHEN '11' THEN 9
+        WHEN '12' THEN 10
+        WHEN '04' THEN 11
+        WHEN '10' THEN 12
+        ELSE 13
+        END
+        , result.inst_nm
+        <![CDATA[
+	LIMIT #firstIndex#, #recordCountPerPage#
+	]]>
+    </select>
+
+    <!--after (3 초 대)-->
+    <select id="targetCompanyListAfter" parameterClass="evaluationGroupSearchDTO" resultMap="companyResultMap">
+        SELECT *
+        FROM (
+        SELECT t1.inst_mng_cd
+        , t1.inst_cd
+        , t1.group_no
+        , t1.inst_nm
+        , t1.evl_type_cd
+        , t1.inst_type_cd
+        , t1.up_inst_mng_cd
+        , t1.up_inst_cd
+        , t1.sbmsn_stts_cd
+        , NVL(t2.inst_evl_cmpl_cnt, 0) + NVL(sys_evl_cmpl_cnt, 0) + IF(t1.evl_type_cd != '01', 1, 0) AS
+        VERIFICATION_COUNT
+        , NVL(
+        (
+        SELECT COUNT(DISTINCT evli_dtl_no)
+        FROM plesysitslevlt
+        WHERE group_no = t1.group_no
+        AND inst_mng_cd = t1.inst_mng_cd
+        GROUP BY inst_mng_cd
+        )
+        , 0) + NVL(
+        (
+        SELECT COUNT(DISTINCT evli_dtl_no)
+        FROM pleinstitslevlt
+        WHERE group_no = t1.group_no
+        AND inst_mng_cd = t1.inst_mng_cd
+        GROUP BY inst_mng_cd
+        ), 0
+        ) + IF(t1.evl_type_cd != '01', 1, 0) AS SELF_VERIFICATION_COUNT
+        , (
+        SELECT COUNT(*)
+        FROM pleinstevlrsltt
+        WHERE inst_mng_cd = t1.inst_mng_cd
+        AND group_no = t1.group_no
+        AND site_insp_req_cd = 'Y'
+        ) + (
+        SELECT COUNT(*)
+        FROM plesysevlrsltt
+        WHERE inst_mng_cd = t1.inst_mng_cd
+        AND group_no = t1.group_no
+        AND site_insp_req_cd = 'Y'
+        ) AS ETC_INFO
+        FROM pletrgtinstt t1
+        LEFT JOIN (
+        SELECT b.inst_mng_cd
+        , SUM(
+        CASE
+        WHEN b.itsl_evl_rslt_cd IN('02', '03') THEN 1
+        ELSE
+        CASE
+        WHEN c.evl_prgrs_stts_cd = '04' THEN 1
+        END
+        END
+        ) AS inst_evl_cmpl_cnt
+        FROM pleevlidtlm a
+        LEFT JOIN pleinstitslevlt b
+        ON b.evli_no = a.evli_no
+        AND b.evli_dtl_no = a.evli_dtl_no
+        AND b.group_no = #companyGroupNo#
+        LEFT JOIN pleinstevlrsltt c
+        ON c.evli_no = b.evli_no
+        AND c.evli_dtl_no = b.evli_dtl_no
+        AND c.inst_mng_cd = b.inst_mng_cd
+        AND c.evl_prgrs_stts_cd = '04'
+        WHERE a.evli_no = #quantitativeIndicatorNo#
+        GROUP BY b.inst_mng_cd
+        ) t2
+        ON t1.inst_mng_cd = t2.inst_mng_cd
+        LEFT JOIN (
+        SELECT e.inst_mng_cd
+        , CAST (
+        SUM(
+        CASE
+        WHEN e.tot_cnt = e.cmpl_cnt THEN '1'
+        END
+        ) AS NUMERIC
+        ) AS sys_evl_cmpl_cnt
+        FROM (
+        SELECT a.inst_mng_cd
+        , a.evli_no
+        , a.evli_dtl_no
+        , (
+        SELECT COUNT(sys_no)
+        FROM pleprvcprcssyst
+        WHERE inst_mng_cd = a.inst_mng_cd
+        AND group_no = a.group_no
+        AND evl_trgt_yn = 'Y'
+        AND sys_evl_prgrs_stts_cd = '01'
+        ) AS tot_cnt
+        , SUM (
+        CASE
+        WHEN a.itsl_evl_rslt_cd IN('02', '03') THEN 1
+        ELSE
+        CASE
+        WHEN b.evl_prgrs_stts_cd = '04' THEN 1
+        END
+        END
+        ) AS cmpl_cnt
+        FROM plesysitslevlt a
+        LEFT JOIN plesysevlrsltt b
+        ON a.group_no = b.group_no
+        AND b.evl_prgrs_stts_cd = '04'
+        AND a.inst_mng_cd = b.inst_mng_cd
+        AND a.evli_no = b.evli_no
+        AND a.evli_dtl_no = b.evli_dtl_no
+        AND a.sys_no = b.sys_no
+        WHERE a.evli_no = #quantitativeIndicatorNo#
+        AND a.group_no = #companyGroupNo#
+        GROUP BY a.inst_mng_cd, a.evli_no, a.evli_dtl_no
+        ) e
+        GROUP BY e.inst_mng_cd
+        ) t3
+        ON t3.inst_mng_cd = t1.inst_mng_cd
+        WHERE t1.group_no = #companyGroupNo#
+        )
+        WHERE 1=1
+        <isNotEmpty property="evaluationTypeBinder">
+            AND evl_type_cd = #evaluationTypeBinder#
+        </isNotEmpty>
+
+        <isNotEmpty property="companyEvaluationTypeBinder">
+            AND inst_type_cd = #companyEvaluationTypeBinder#
+        </isNotEmpty>
+
+        <isNotEmpty property="companyName">
+            AND UPPER(inst_nm) LIKE '%'||UPPER(#companyName#)||'%'
+        </isNotEmpty>
+
+        <isEqual property="status" compareValue="completed">
+            AND verification_count = self_verification_count
+        </isEqual>
+        <isEqual property="status" compareValue="inCompleted">
+            AND verification_count &lt; self_verification_count
+        </isEqual>
+
+        <isEqual property="etcInfo" compareValue="Y">
+            AND etc_info != 0
+        </isEqual>
+        <isEqual property="etcInfo" compareValue="N">
+            AND (etc_info = 0 OR etc_info IS NULL)
+        </isEqual>
+        ORDER BY FIELD(inst_type_cd, '01', '05', '06', '02', '03', '07', '08', '09', '11', '12', '04', '10')
+        , inst_nm
+        LIMIT #firstIndex#, #recordCountPerPage#
+    </select>
+</sqlMap>
